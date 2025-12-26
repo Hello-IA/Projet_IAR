@@ -1,0 +1,99 @@
+===== Auteurs =====
+Rahma Chaabouni, Eugene Kharitonov, Marco Baroni -> seul article publié
+Emmanuel Dupoux -> 1/3 articles publiés
+
+================================================================================================================
+
+===== GitHub =====
+https://github.com/rahmacha/EGG
+
+================================================================================================================
+
+===== Affiliation =====
+Facebook AI Research
+Psychological and Cognitive Sciences
+2021
+
+Journal PNAS -> revue scientifique américaine
+
+================================================================================================================
+
+===== IB =====
+"Information Bottleneck" est un cadre theorique (Tishby et al, 1999) tq 
+extraire les données d'entrée, garder que l'essentiel tout en préservant l'info utile
+pour prédire la sortie. 
+Ici dans l'article, ce serait compresser les infos perceptuelles, les couleurs du spectre, 
+tout en préservant ce qu'il faut pour une communication réussie, "catégories" de couleur.
+
+================================================================================================================
+
+===== Lien IB et accuracy/complexity =====
+Chaque système de nommage (humain ou NN) est représenté par un point sur le plan accuracy/complexity.
+La courbe noire est la limite théorique Information Bottleneck. Plus un système est proche de cette courbe, 
+plus il est efficace.
+
+================================================================================================================
+
+===== CIELAB space =====
+C'est un espace de couleur perceptuel, conçu pour modéliser la perception humaine des couleurs. 
+Une même distance entre 2 points dans un espace ≈ une même distance perçue entre les couleurs. 
+Commission Internationale de l’Éclairage (CIE)
+L: Luminosité (lightness), 0=noir 100=blanc, dimension verticale de luminosité
+A: axe vert-rouge, négatif=vert positif=rouge, plus on va vers la droite, plus la couleur est rouge
+B: axe bleu-jaune négatif=bleu positif=jaune, plus on monte plus c'est jaune, plus on descend, plus c'est bleu
+
+Dans cet article, les distances entre couleurs reflètent la perception humaine, ce qui permet de comparer
+plus justement l'efficacité ou la similarité des systèmes de nommage aux langues humaines. 
+-> Si 2 couleurs sont proches en CIELAB, les humains (et idéalement les agents) devraient avoir tendance à 
+les nommer pareil. 
+
+================================================================================================================
+
+===== DIRAC =====
+Une variable aléatoire qui prend une seule valeur avec certitude
+
+================================================================================================================
+
+===== Kellback-Leiber divergence =====
+Mesure à quel point une distribution de proba P est différente d'une autre Q. 
+C'est une pénalité d'écart entre la vérité et mon approximation. 
+
+================================================================================================================
+
+===== Discriminative need =====
+C'est le besoin de distinguer entre différents stimulis, ici les couleurs.
+C'est la pression communicative qui pousse les agents à inventer des mots ou des catégories
+différentes qd 2 choses doivent être distinguées. 
+Le Listener doit "discriminer" (reconnaître) la couleur correcte parmi un ensemble de possibles. 
+Si les couleurs sont très différentes (ex. bleu vs rouge), le besoin discriminatif est faible, n'importe quel 
+mot clair suffit. 
+Si au contraire elles sont très proches (ex. vert clair vs verts foncé), le besoin discriminatif 
+devient fort : il faut affiner le language. 
+
+Là où la tâche demande de distinguer plus finement (fort discriminative need), 
+les agents inventent plus de noms de couleur différents.
+
+================================================================================================================
+
+===== FCM =====
+"Fuzzy C-Means"
+C'est une version souple du K-Means. 
+Il est utilisé ici comme outil de comparaison pour tester si les réseaux neuronaux auraient pu trouver
+d'autres systèmes de nommage de couleur plus précis. 
+Il permet à chaque points d'appartenir partiellement à plusieurs clusters. Donc une couleur peut appartenir à 
+plusieurs catégories avec un certain degré d'apparetenance (poids). (Alors qu'en K-Means, une couleur -> une catégorie)
+Chaque couleur est associée à une proba d'appartenance. 
+
+================================================================================================================
+
+===== Fonctionnement du Système =====
+- Le Speaker envoie un message (couleur)
+- Le Listener reçoit et doit deviner la bonne couleur parmi plusieurs. 
+
+Les réseaux ne transmettent qu'un mot. Cette contrainte agit comme un goulot d'étranglement, elle force la 
+simplification du code et c'est elle qui rend les systèmes efficients et proche du language huamin.
+
+================================================================================================================
+===== Résultats expérimentaux =====
+Si on rend la communication continue, les systèmes deviennent plus complexes et moins efficaces donc
+la discrétion est cruciale. 
