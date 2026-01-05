@@ -1,0 +1,8 @@
+Meilleurs hyperparamètres :
+lr: 0.0009488916108443118
+tau_s: 2.3167829883799427
+sender_entropy: 0.09511187187723279
+receiver_entropy: 0.029903872692200614
+batch_size: 128
+
+Accuracy max: 0.8591

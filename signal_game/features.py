@@ -10,75 +10,57 @@ import numpy as np
 import torch
 import torch.nn.parallel
 import torch.utils.data as data
-
+import h5py
 
 class _BatchIterator:
     def __init__(self, loader, n_batches, seed=None):
         self.loader = loader
+        self.dataset = loader.dataset
         self.n_batches = n_batches
+        self.batch_size = loader.batch_size
+        self.game_size = loader.opt.game_size
+        self.percentile = loader.opt.percentile
         self.batches_generated = 0
-        self.random_state = np.random.RandomState(seed)
+        self.rng = np.random.RandomState(seed)
+
+        # seuil de distance minimale entre target et distracteur
+        self.dist_min = self.dataset.thresholds[self.percentile]
 
     def __iter__(self):
         return self
 
     def __next__(self):
-        if self.batches_generated > self.n_batches:
+        if self.batches_generated >= self.n_batches:
             raise StopIteration()
-
-        batch_data = self.get_batch()
         self.batches_generated += 1
-        return batch_data
+        return self.get_batch()
 
     def get_batch(self):
-        loader = self.loader
-        opt = loader.opt
+        X_sender = torch.zeros(self.game_size, self.batch_size, 3)
+        X_receiver = torch.zeros_like(X_sender)
+        y = torch.zeros(self.batch_size, dtype=torch.long)
 
-        C = len(self.loader.dataset.obj2id.keys())  # number of concepts
-        images_indexes_sender = np.zeros((opt.batch_size, opt.game_size))
+        for b in range(self.batch_size):
+            # 1️ Choisir la cible
+            c_t = self.rng.randint(0, len(self.dataset.colors))
 
-        for b in range(opt.batch_size):
-            if opt.same:
-                # randomly sample a concept
-                concepts = self.random_state.choice(C, 1)
-                c = concepts[0]
-                ims = loader.dataset.obj2id[c]["ims"]
-                idxs_sender = self.random_state.choice(
-                    ims, opt.game_size, replace=False
-                )
-                images_indexes_sender[b, :] = idxs_sender
-            else:
-                idxs_sender = []
-                # randomly sample k concepts
-                concepts = self.random_state.choice(C, opt.game_size, replace=False)
-                for i, c in enumerate(concepts):
-                    ims = loader.dataset.obj2id[c]["ims"]
-                    if len(ims) >= 2:
-                        idx = self.random_state.choice(ims, 2, replace=False)
-                    else:
-                        idx = self.random_state.choice(ims, 2, replace=True)
+            # 2️ Choisir un distracteur valide
+            valid = torch.where(self.dataset.dist_matrix[c_t] >= self.dist_min)[0].numpy()
+            valid = valid[valid != c_t]  # sécurité
+            c_d = self.rng.choice(valid)
 
-                    idxs_sender.append(idx[0])
+            # 3️ Mettre la cible en position 0
+            X_sender[0, b] = self.dataset.colors[c_t]
+            X_sender[1, b] = self.dataset.colors[c_d]
 
-                images_indexes_sender[b, :] = np.array(idxs_sender)
+            # 4️ Mélanger pour le Receiver
+            perm = torch.randperm(self.game_size)
+            X_receiver[:, b] = X_sender[perm, b]
 
-        images_vectors_sender = []
+            # 5️ Label = position de la cible après mélange
+            y[b] = (perm == 0).nonzero(as_tuple=True)[0]
 
-        for i in range(opt.game_size):
-            x, _ = loader.dataset[images_indexes_sender[:, i]]
-            images_vectors_sender.append(x)
-
-        images_vectors_sender = torch.stack(images_vectors_sender).contiguous()
-        y = torch.zeros(opt.batch_size).long()
-
-        images_vectors_receiver = torch.zeros_like(images_vectors_sender)
-        for i in range(opt.batch_size):
-            permutation = torch.randperm(opt.game_size)
-
-            images_vectors_receiver[:, i, :] = images_vectors_sender[permutation, i, :]
-            y[i] = permutation.argmin()
-        return images_vectors_sender, y, images_vectors_receiver
-
+        return X_sender, y, X_receiver
 
 class ImagenetLoader(torch.utils.data.DataLoader):
     def __init__(self, *args, **kwargs):
@@ -96,53 +78,35 @@ class ImagenetLoader(torch.utils.data.DataLoader):
         return _BatchIterator(self, n_batches=self.batches_per_epoch, seed=seed)
 
 
-class ImageNetFeat(data.Dataset):
-    def __init__(self, root, train=True):
-        import h5py
 
-        self.root = os.path.expanduser(root)
-        self.train = train  # training set or test set
 
-        # FC features
-        fc_file = os.path.join(root, "ours_images_single_sm0.h5")
 
-        fc = h5py.File(fc_file, "r")
-        # There should be only 1 key
-        key = list(fc.keys())[0]
-        # Get the data
-        data = torch.FloatTensor(list(fc[key]))
+class WCSFeat(data.Dataset):
+    def __init__(self, h5_file, percentiles=(10, 25, 50, 75)):
+        # Recuperer les couleur CIELAB dans le ficher .h5 taille de colors (330, 3) avec les dimantion (L, A, B) pour chaque chips
+        with h5py.File(h5_file, "r") as f:
+            self.colors = torch.tensor(f["features"][:]).float()
 
-        # normalise data
-        img_norm = torch.norm(data, p=2, dim=1, keepdim=True)
-        normed_data = data / img_norm
+        # Calcul de la matrice des distances perceptives (CIELAB) shape = (330, 330)
+        self.dist_matrix = torch.cdist(self.colors, self.colors, p=2) 
 
-        objects_file = os.path.join(root, "ours_images_single_sm0.objects")
-        with open(objects_file, "rb") as f:
-            labels = pickle.load(f)
-        objects_file = os.path.join(root, "ours_images_paths_sm0.objects")
-        with open(objects_file, "rb") as f:
-            paths = pickle.load(f)
+        # 3. Extraire les distances uniques (k > l) toute les indise au decus de la diagonale pour ne pas avoir les distence deux fois.
+        tri_i, tri_j = torch.triu_indices(
+            self.dist_matrix.size(0),
+            self.dist_matrix.size(1),
+            offset=1,
+        )
+        all_dists = self.dist_matrix[tri_i, tri_j] # ne garde que les distence des indice strictement audecus de la diagonalle.
 
-        self.create_obj2id(labels)
-        self.data_tensor = normed_data
-        self.labels = labels
-        self.paths = paths
+        # 4. Calcul des seuils dist_min (percentiles) dans un dictioner de seulle caculer avec les distence de tous les chips WCS deux a deux
+        self.thresholds = {
+            p: torch.quantile(all_dists, p / 100.0).item()
+            for p in percentiles
+        }
 
-    def __getitem__(self, index):
-        return self.data_tensor[index], index
 
     def __len__(self):
-        return self.data_tensor.size(0)
+        return self.colors.size(0)
 
-    def create_obj2id(self, labels):
-        self.obj2id = {}
-        keys = {}
-        idx_label = -1
-        for i in range(labels.shape[0]):
-            if not labels[i] in keys.keys():
-                idx_label += 1
-                keys[labels[i]] = idx_label
-                self.obj2id[idx_label] = {}
-                self.obj2id[idx_label]["labels"] = labels[i]
-                self.obj2id[idx_label]["ims"] = []
-            self.obj2id[idx_label]["ims"].append(i)
+    def __getitem__(self, idx):
+        return self.colors[idx], idx
