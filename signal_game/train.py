@@ -78,23 +78,23 @@ def loss_nll(
     return nll, {"acc": acc}
 
 
-def get_game(opt, sender_entropy, receiver_entropy):
+def get_game(game_size, mode, gs_tau, tau_s, sender_entropy, receiver_entropy):
     feat_size = 3
     vocab_size = 1024
     embedding_size = 1000
     sender = ColorSenderMLP(
-        game_size=opt.game_size,
+        game_size=game_size,
         embedding_size=embedding_size,  # par ex. 50
         vocab_size=vocab_size,
-        temp=opt.tau_s,
+        temp=tau_s,
     )
     receiver = ColorReceiverMLP(
-        game_size=opt.game_size,
+        game_size=game_size,
         embedding_size=5,  # doit matcher sender
         vocab_size=vocab_size,
-        reinforce = True if opt.mode == "rf" else False
+        reinforce = True if mode == "rf" else False
     )
-    if opt.mode == "rf":
+    if mode == "rf":
         sender = core.ReinforceWrapper(sender)
         receiver = core.ReinforceWrapper(receiver)
         game = core.SymbolGameReinforce(
@@ -104,11 +104,11 @@ def get_game(opt, sender_entropy, receiver_entropy):
             sender_entropy_coeff=sender_entropy,
             receiver_entropy_coeff=receiver_entropy,
         )
-    elif opt.mode == "gs":
-        sender = core.GumbelSoftmaxWrapper(sender, temperature=opt.gs_tau)
+    elif mode == "gs":
+        sender = core.GumbelSoftmaxWrapper(sender, temperature=gs_tau)
         game = core.SymbolGameGS(sender, receiver, loss_nll)
     else:
-        raise RuntimeError(f"Unknown training mode: {opt.mode}")
+        raise RuntimeError(f"Unknown training mode: {mode}")
 
     return game
 
@@ -134,7 +134,7 @@ if __name__ == "__main__":
         batches_per_epoch=opts.batches_per_epoch,
         seed=7,
     )
-    game = get_game(opts, 0.09511187187723279, 0.029903872692200614)
+    game = get_game(opts.game_size, opts.mode, opts.gs_tau, opts.tau_s, 0.09511187187723279, 0.029903872692200614)
     optimizer = core.build_optimizer(game.parameters())
     for g in optimizer.param_groups:
         g['lr'] = 0.0009488916108443118
