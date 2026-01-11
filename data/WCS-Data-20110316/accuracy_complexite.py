@@ -6,6 +6,29 @@ from scipy.spatial.distance import cdist
 import matplotlib.pyplot as plt
 import csv
 
+
+def load_nn_language(path, U=330):
+    chip_terms = defaultdict(list)
+
+    with open(path, "r") as f:
+        for line in f:
+            speaker, chip, term = line.strip().split()
+            chip_terms[int(chip) - 1].append(term)
+
+    vocab = sorted({t for terms in chip_terms.values() for t in terms})
+    word2idx = {w: i for i, w in enumerate(vocab)}
+    V = len(vocab)
+
+    P_w_c = np.zeros((U, V))
+    for c in range(U):
+        counts = Counter(chip_terms[c])
+        total = sum(counts.values())
+        for w, cnt in counts.items():
+            P_w_c[c, word2idx[w]] = cnt / total
+
+    return P_w_c
+
+
 # ---------- Chargement LAB ----------
 with h5py.File("ours_images_single_sm0.h5", "r") as f:
     LAB = np.array(f["features"])  # (330, 3)
@@ -31,7 +54,7 @@ p_u = (P_c * m_c_u).sum(axis=0)
 P_m = np.ones(U) / U
 # ---------- Stockage des résultats ----------
 results = []
-
+"""
 # ---------- Boucle langues ----------
 for LANG in range(1, 111):
 
@@ -83,8 +106,40 @@ for LANG in range(1, 111):
     print(f"LANG {LANG:3d} | I(M;W)={I_MW:.3f} | I(U;W)={I_UW:.3f}")
 
     results.append((LANG, I_MW, I_UW))
-    
-    
+"""
+# ---------- Langue NN ----------
+P_w_c_nn = load_nn_language("nn_language_seed_3.txt", U=U)
+
+# P(w)
+P_w_nn = P_c * P_w_c_nn.sum(axis=0)
+P_w_nn /= P_w_nn.sum()
+
+# ----- Complexité I(M;W) -----
+I_MW_nn = 0.0
+for c in range(U):
+    for w in range(P_w_c_nn.shape[1]):
+        p = P_w_c_nn[c, w]
+        if p > 0:
+            I_MW_nn += P_c * p * np.log2(p / P_w_nn[w])
+
+# ----- p(u|w) -----
+p_u_w_nn = np.zeros((P_w_c_nn.shape[1], U))
+for w in range(P_w_c_nn.shape[1]):
+    if P_w_nn[w] > 0:
+        P_c_given_w = P_w_c_nn[:, w] * P_c / P_w_nn[w]
+        p_u_w_nn[w] = (P_c_given_w[:, None] * m_c_u).sum(axis=0)
+        p_u_w_nn[w] /= p_u_w_nn[w].sum()
+
+# ----- Accuracy I(U;W) -----
+I_UW_nn = 0.0
+for w in range(P_w_c_nn.shape[1]):
+    if P_w_nn[w] > 0:
+        I_UW_nn += P_w_nn[w] * kl(p_u_w_nn[w], p_u)
+
+print("\n=== Neural language ===")
+print(f"I(M;W) = {I_MW_nn:.3f}")
+print(f"I(U;W) = {I_UW_nn:.3f}")
+
 # ---------- IB Solver ----------
 def solve_ib(beta, q_w_m_init, K=20, n_iter=200):
     q_w_m = q_w_m_init.copy()
@@ -168,6 +223,15 @@ plt.figure(figsize=(7, 6))
 results = np.array(results)
 plt.scatter(results[:,1], results[:,2],
             s=40, alpha=0.6, label="WCS languages")
+
+# Langue NN
+plt.scatter(I_MW_nn, I_UW_nn,
+            s=120,
+            color="orange",
+            edgecolor="black",
+            label="Neural language",
+            zorder=5)
+
 
 # Courbe IB
 plt.plot(ib_points[:,0], ib_points[:,1],

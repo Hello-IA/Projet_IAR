@@ -41,13 +41,26 @@ class _BatchIterator:
         y = torch.zeros(self.batch_size, dtype=torch.long)
 
         for b in range(self.batch_size):
-            # 1️ Choisir la cible
+            # 1 Choisir la cible
             c_t = self.rng.randint(0, len(self.dataset.colors))
 
-            # 2️ Choisir un distracteur valide
-            valid = torch.where(self.dataset.dist_matrix[c_t] >= self.dist_min)[0].numpy()
-            valid = valid[valid != c_t]  # sécurité
-            c_d = self.rng.choice(valid)
+            # 2) Distances à la cible
+            distances = self.dataset.dist_matrix[c_t]
+
+            # 3) Distracteurs respectant le percentile
+            valid = torch.where(distances >= self.dist_min)[0]
+
+            # Exclure la cible elle-même
+            valid = valid[valid != c_t]
+
+            # === FALLBACK OBLIGATOIRE ===
+            if len(valid) == 0:
+                # prendre le plus éloigné possible
+                valid = torch.topk(distances, k=2).indices
+                valid = valid[valid != c_t]
+
+            # Tirage du distracteur
+            c_d = valid[self.rng.randint(len(valid))].item()
 
             # 3️ Mettre la cible en position 0
             X_sender[0, b] = self.dataset.colors[c_t]
@@ -82,7 +95,7 @@ class ImagenetLoader(torch.utils.data.DataLoader):
 
 
 class WCSFeat(data.Dataset):
-    def __init__(self, h5_file, percentiles=(10, 25, 50, 75)):
+    def __init__(self, h5_file, percentiles=(20, 40, 60, 80)):
         # Recuperer les couleur CIELAB dans le ficher .h5 taille de colors (330, 3) avec les dimantion (L, A, B) pour chaque chips
         with h5py.File(h5_file, "r") as f:
             self.colors = torch.tensor(f["features"][:]).float()
@@ -96,6 +109,7 @@ class WCSFeat(data.Dataset):
             self.dist_matrix.size(1),
             offset=1,
         )
+
         all_dists = self.dist_matrix[tri_i, tri_j] # ne garde que les distence des indice strictement audecus de la diagonalle.
 
         # 4. Calcul des seuils dist_min (percentiles) dans un dictioner de seulle caculer avec les distence de tous les chips WCS deux a deux

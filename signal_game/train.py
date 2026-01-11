@@ -41,14 +41,14 @@ def parse_arguments():
     parser.add_argument(
         "--mode",
         type=str,
-        default="rf",
+        default="gs",
         help="Training mode: Gumbel-Softmax (gs) or Reinforce (rf). Default: rf.",
     )
-    parser.add_argument("--gs_tau", type=float, default=1.0, help="GS temperature")
+    parser.add_argument("--gs_tau", type=float, default=10.0, help="GS temperature")
     parser.add_argument(
         "--percentile",
         type=int,
-        default=25,
+        default=60,
         help="Percentile for dist_min (discriminative need)",
     )
 
