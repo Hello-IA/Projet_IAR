@@ -62,15 +62,15 @@ class _BatchIterator:
             # Tirage du distracteur
             c_d = valid[self.rng.randint(len(valid))].item()
 
-            # 3️ Mettre la cible en position 0
+            # 3 Mettre la cible en position 0
             X_sender[0, b] = self.dataset.colors[c_t]
             X_sender[1, b] = self.dataset.colors[c_d]
 
-            # 4️ Mélanger pour le Receiver
+            # 4 Mélanger pour le Receiver
             perm = torch.randperm(self.game_size)
             X_receiver[:, b] = X_sender[perm, b]
 
-            # 5️ Label = position de la cible après mélange
+            # 5 Label = position de la cible après mélange
             y[b] = (perm == 0).nonzero(as_tuple=True)[0]
 
         return X_sender, y, X_receiver

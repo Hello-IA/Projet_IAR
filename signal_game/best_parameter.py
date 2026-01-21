@@ -33,6 +33,7 @@ class ValidationAccCallback(core.Callback):
 
 
 def objective(trial):
+    game_size = 2
     # ------------------ hyperparams ------------------
     lr = trial.suggest_float("lr", 1e-4, 5e-3, log=True)
     tau_s = trial.suggest_float("tau_s", 1.0, 5.0)
@@ -44,10 +45,11 @@ def objective(trial):
     opts = parse_arguments()
     opts.tau_s = tau_s
     opts.batch_size = batch_size
+    opts.mode = "gs"
+    opts.gs_tau = 1
 
     # ------------------ dataset ------------------
-    data_folder = os.path.join(opts.root, "train\\")
-    dataset = WCSFeat(data_folder + "ours_images_single_sm0.h5")
+    dataset = WCSFeat("ours_images_single_sm0.h5")
 
     train_loader = ImagenetLoader(
         dataset,
@@ -67,7 +69,7 @@ def objective(trial):
     )
 
     # ------------------ game ------------------
-    game = get_game(opts, sender_entropy, receiver_entropy)
+    game = get_game(game_size, opts.mode, opts.gs_tau, opts.tau_s, sender_entropy, receiver_entropy)
 
     optimizer = core.build_optimizer(game.parameters())
     for g in optimizer.param_groups:
@@ -101,8 +103,8 @@ if __name__ == "__main__":
     study = optuna.create_study(direction="maximize")
     study.optimize(objective, n_trials=40)
 
-    print("\n🏆 Meilleurs hyperparamètres :")
+    print("\n Meilleurs hyperparamètres :")
     for k, v in study.best_params.items():
         print(f"{k}: {v}")
 
-    print(f"\n🎯 Accuracy max: {study.best_value:.4f}")
+    print(f"\n Accuracy max: {study.best_value:.4f}")

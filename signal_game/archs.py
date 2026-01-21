@@ -6,7 +6,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
-class ColorSenderMLP(nn.Module):
+class ColorSenderRF(nn.Module):
     def __init__(self, game_size=2, embedding_size=1000, vocab_size=1024, temp=1.0):
         super().__init__()
         self.game_size = game_size
@@ -33,12 +33,39 @@ class ColorSenderMLP(nn.Module):
         hr1 = self.leaky_reLU(h1)
         h2 = self.lin3(hr1)
         hr2 = self.leaky_reLU(h2)
-        # borne le tenseur pour eviter d'avoir une valeur negatif a passer au softmax car celui-ci pourer renvoier des valeur null.
         logits = torch.clamp(self.lin4(hr2) / self.temp, min=-50, max=50)  # (batch_size, vocab_size)
         log_probs = F.log_softmax(logits, dim=1)
         return log_probs
 
+class ColorSenderGS(nn.Module):
+    def __init__(self, game_size=2, embedding_size=1000, vocab_size=1024, temp=1.0):
+        super().__init__()
+        self.game_size = game_size
+        self.embedding_size = embedding_size
+        self.vocab_size = vocab_size
+        self.temp = temp
+        # réseau simple MLP sur couleurs
+        self.lin1 = nn.Linear(3, embedding_size)
+        self.lin2 = nn.Linear(embedding_size, embedding_size)
+        self.lin3 = nn.Linear(embedding_size, embedding_size)
+        self.lin4 = nn.Linear(embedding_size, vocab_size)
+        self.leaky_reLU = nn.LeakyReLU(0.01)
 
+    def forward(self, x, _aux_input=None):
+        """
+        x: tensor shape (game_size, batch_size, 3)
+        """
+        batch_size = x.size(1)
+
+        # On ne prend que la couleur cible en position 0
+        h = self.lin1(x[0])  # (batch_size, embedding_size)
+        hr = self.leaky_reLU(h)
+        h1 = self.lin2(hr)
+        hr1 = self.leaky_reLU(h1)
+        h2 = self.lin3(hr1)
+        hr2 = self.leaky_reLU(h2)
+        logits = torch.clamp(self.lin4(hr2) / self.temp, min=-50, max=50)  # (batch_size, vocab_size)
+        return logits
 
 class ColorReceiverMLP(nn.Module):
     def __init__(self, game_size: int, embedding_size: int = 5,vocab_size: int = 1024,reinforce: bool = True,):

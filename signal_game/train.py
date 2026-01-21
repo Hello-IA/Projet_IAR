@@ -9,7 +9,7 @@ import os
 import torch.nn.functional as F
 
 import egg.core as core
-from archs import ColorSenderMLP, ColorReceiverMLP
+from archs import ColorSenderRF, ColorSenderGS, ColorReceiverMLP
 from features import WCSFeat, ImagenetLoader
 
 
@@ -82,12 +82,23 @@ def get_game(game_size, mode, gs_tau, tau_s, sender_entropy, receiver_entropy):
     feat_size = 3
     vocab_size = 1024
     embedding_size = 1000
-    sender = ColorSenderMLP(
-        game_size=game_size,
-        embedding_size=embedding_size,  # par ex. 50
-        vocab_size=vocab_size,
-        temp=tau_s,
-    )
+    if mode == "rf":
+        sender = ColorSenderRF(
+            game_size=game_size,
+            embedding_size=embedding_size,
+            vocab_size=vocab_size,
+            temp=tau_s,
+        )
+    elif mode == "gs":
+                sender = ColorSenderGS(
+            game_size=game_size,
+            embedding_size=embedding_size, 
+            vocab_size=vocab_size,
+            temp=tau_s,
+        )
+    else:
+        raise RuntimeError(f"Unknown training mode: {mode}")
+
     receiver = ColorReceiverMLP(
         game_size=game_size,
         embedding_size=5,  # doit matcher sender
@@ -95,6 +106,7 @@ def get_game(game_size, mode, gs_tau, tau_s, sender_entropy, receiver_entropy):
         reinforce = True if mode == "rf" else False
     )
     if mode == "rf":
+        print("Renfocrce")
         sender = core.ReinforceWrapper(sender)
         receiver = core.ReinforceWrapper(receiver)
         game = core.SymbolGameReinforce(
@@ -105,6 +117,7 @@ def get_game(game_size, mode, gs_tau, tau_s, sender_entropy, receiver_entropy):
             receiver_entropy_coeff=receiver_entropy,
         )
     elif mode == "gs":
+        print("gumbelle Softmax")
         sender = core.GumbelSoftmaxWrapper(sender, temperature=gs_tau)
         game = core.SymbolGameGS(sender, receiver, loss_nll)
     else:
@@ -115,7 +128,6 @@ def get_game(game_size, mode, gs_tau, tau_s, sender_entropy, receiver_entropy):
 
 if __name__ == "__main__":
     opts = parse_arguments()
-
     data_folder = os.path.join(opts.root, "train\\")
     dataset = WCSFeat(data_folder+"ours_images_single_sm0.h5")
     batch_size = 128

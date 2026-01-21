@@ -73,7 +73,6 @@ def load_nn_language(path, U=330):
 
     return P_w_c
 
-
 # ---------- Chargement LAB ----------
 with h5py.File("ours_images_single_sm0.h5", "r") as f:
     LAB = np.array(f["features"])  # (330, 3)
@@ -98,84 +97,63 @@ p_u = (P_c * m_c_u).sum(axis=0)
 
 P_m = np.ones(U) / U
 # ---------- Stockage des résultats ----------
-results = []
+def cumpute_humain_langues(path):
+    results = []
 
-# ---------- Boucle langues ----------
-for LANG in range(1, 111):
+    # ---------- Boucle langues ----------
+    for LANG in range(1, 111):
 
-    chip_terms = defaultdict(list)
-    with open("term.txt", "r", encoding="utf-8") as f:
-        for line in f:
-            lang, speaker, chip, term = line.strip().split("\t")
-            if int(lang) == LANG:
-                chip_terms[int(chip) - 1].append(term)
+        chip_terms = defaultdict(list)
+        with open(path, "r", encoding="utf-8") as f:
+            for line in f:
+                lang, speaker, chip, term = line.strip().split("\t")
+                if int(lang) == LANG:
+                    chip_terms[int(chip) - 1].append(term)
 
-    vocab = sorted({t for terms in chip_terms.values() for t in terms})
-    word2idx = {w: i for i, w in enumerate(vocab)}
-    V = len(vocab)
+        vocab = sorted({t for terms in chip_terms.values() for t in terms})
+        word2idx = {w: i for i, w in enumerate(vocab)}
+        V = len(vocab)
 
-    # ---------- P(w|c) ----------
-    P_w_c = np.zeros((U, V))
-    for c in range(U):
-        counts = Counter(chip_terms[c])
-        total = sum(counts.values())
-        for w, cnt in counts.items():
-            P_w_c[c, word2idx[w]] = cnt / total
+        # ---------- P(w|c) ----------
+        P_w_c = np.zeros((U, V))
+        for c in range(U):
+            counts = Counter(chip_terms[c])
+            total = sum(counts.values())
+            for w, cnt in counts.items():
+                P_w_c[c, word2idx[w]] = cnt / total
 
-    # ---------- P(w) ----------
-    P_w = P_c * P_w_c.sum(axis=0)
-    P_w /= P_w.sum()
+        # ---------- P(w) ----------
+        P_w = P_c * P_w_c.sum(axis=0)
+        P_w /= P_w.sum()
 
-    # ---------- Complexité I(M;W) ----------
-    I_MW = 0.0
-    for c in range(U):
+        # ---------- Complexité I(M;W) ----------
+        I_MW = 0.0
+        for c in range(U):
+            for w in range(V):
+                p = P_w_c[c, w]
+                if p > 0:
+                    I_MW += P_c * p * np.log2(p / P_w[w])
+
+        # ---------- p(u|w) ----------
+        p_u_w = np.zeros((V, U))
         for w in range(V):
-            p = P_w_c[c, w]
-            if p > 0:
-                I_MW += P_c * p * np.log2(p / P_w[w])
+            if P_w[w] > 0:
+                P_c_given_w = P_w_c[:, w] * P_c / P_w[w]
+                p_u_w[w] = (P_c_given_w[:, None] * m_c_u).sum(axis=0)
+                p_u_w[w] /= p_u_w[w].sum()
 
-    # ---------- p(u|w) ----------
-    p_u_w = np.zeros((V, U))
-    for w in range(V):
-        if P_w[w] > 0:
-            P_c_given_w = P_w_c[:, w] * P_c / P_w[w]
-            p_u_w[w] = (P_c_given_w[:, None] * m_c_u).sum(axis=0)
-            p_u_w[w] /= p_u_w[w].sum()
+        # ---------- Accuracy I(U;W) ----------
+        I_UW = 0.0
+        for w in range(V):
+            if P_w[w] > 0:
+                I_UW += P_w[w] * kl(p_u_w[w], p_u) / np.log(2)
 
-    # ---------- Accuracy I(U;W) ----------
-    I_UW = 0.0
-    for w in range(V):
-        if P_w[w] > 0:
-            I_UW += P_w[w] * kl(p_u_w[w], p_u)
+        print(f"LANG {LANG:3d} | I(M;W)={I_MW:.3f} | I(U;W)={I_UW:.3f}")
 
-    print(f"LANG {LANG:3d} | I(M;W)={I_MW:.3f} | I(U;W)={I_UW:.3f}")
+        results.append((LANG, I_MW, I_UW))
+    return results
 
-    results.append((LANG, I_MW, I_UW))
 
-def load_nn_language(path, U):
-    """
-    Charge un fichier nn_language_seed_X.txt
-    Retourne P(w|c) normalisé
-    """
-    chip_words = defaultdict(list)
-
-    with open(path, "r") as f:
-        for line in f:
-            _, chip, word = line.strip().split()
-            chip_words[int(chip) - 1].append(word)
-
-    vocab = sorted({w for ws in chip_words.values() for w in ws})
-    word2idx = {w: i for i, w in enumerate(vocab)}
-    V = len(vocab)
-
-    P_w_c = np.zeros((U, V))
-    for c in range(U):
-        counts = Counter(chip_words[c])
-        total = sum(counts.values())
-        for w, cnt in counts.items():
-            P_w_c[c, word2idx[w]] = cnt / total
-
-    return P_w_c
 
 
 def project_nn_with_ib(P_w_c_nn, K=20, betas=np.linspace(0.8, 1.3, 25)):
@@ -202,105 +180,44 @@ def project_nn_with_ib(P_w_c_nn, K=20, betas=np.linspace(0.8, 1.3, 25)):
     return best
 
 
-results_nn = []
+def cumpute_nn_langues(path, index_min, index_max):
+    results_nn = []
+    for i in range(index_min, index_max):
+        print(f"\n=== NN language {i} ===")
 
-for i in range(60):
-    print(f"\n=== NN language {i} ===")
+        # --- Charger P(w|c) NN depuis le fichier .npz (330x1024) ---
+        data = np.load(path+f"/nn_language_seed_{i}.npz")
+        P_w_c_nn = data["P_w_c"]  # (330, 1024)
+        U, V = P_w_c_nn.shape
+        P_c = 1.0 / U
 
-    # --- Charger P(w|c) NN depuis le fichier .npz (330x1024) ---
-    data = np.load(f"fig3_bis/nn_language_seed_{i}.npz")
-    P_w_c_nn = data["P_w_c"]  # (330, 1024)
-    U, V = P_w_c_nn.shape
-    P_c = 1.0 / U
+        # ---------- P(w) ----------
+        P_w = P_c * P_w_c_nn.sum(axis=0)
+        P_w /= P_w.sum()
 
-    # ---------- P(w) ----------
-    P_w = P_c * P_w_c_nn.sum(axis=0)
-    P_w /= P_w.sum()
+        # ---------- Complexité I(M;W) ----------
+        I_MW = 0.0
+        for c in range(U):
+            for w in range(V):
+                p = P_w_c_nn[c, w]
+                if p > 0:
+                    I_MW += P_c * p * np.log2(p / P_w[w])
 
-    # ---------- Complexité I(M;W) ----------
-    I_MW = 0.0
-    for c in range(U):
+        # ---------- p(u|w) ----------
+        p_u_w = np.zeros((V, U))
         for w in range(V):
-            p = P_w_c_nn[c, w]
-            if p > 0:
-                I_MW += P_c * p * np.log2(p / P_w[w])
+            if P_w[w] > 0:
+                P_c_given_w = P_w_c_nn[:, w] * P_c / P_w[w]
+                p_u_w[w] = (P_c_given_w[:, None] * m_c_u).sum(axis=0)
+                p_u_w[w] /= p_u_w[w].sum()
 
-    # ---------- p(u|w) ----------
-    p_u_w = np.zeros((V, U))
-    for w in range(V):
-        if P_w[w] > 0:
-            P_c_given_w = P_w_c_nn[:, w] * P_c / P_w[w]
-            p_u_w[w] = (P_c_given_w[:, None] * m_c_u).sum(axis=0)
-            p_u_w[w] /= p_u_w[w].sum()
+        # ---------- Accuracy I(U;W) ----------
+        I_UW = 0.0
+        for w in range(V):
+            if P_w[w] > 0:
+                I_UW += P_w[w] * kl(p_u_w[w], p_u) / np.log(2)
 
-    # ---------- Accuracy I(U;W) ----------
-    I_UW = 0.0
-    for w in range(V):
-        if P_w[w] > 0:
-            I_UW += P_w[w] * kl(p_u_w[w], p_u)
-
-    results_nn.append((i, I_MW, I_UW))
-    print(f"I(M;W) = {I_MW:.3f}")
-    print(f"I(U;W) = {I_UW:.3f}")
-
-
-
-
-betas = np.linspace(1.0, 2.0, 50)
-
-K = 20
-q_w_m = np.random.rand(U, K)
-q_w_m /= q_w_m.sum(axis=1, keepdims=True)
-
-ib_points = []
-
-for beta in betas:
-    I_MW, I_UW, q_w_m = solve_ib(beta, q_w_m, K=K)
-    ib_points.append((I_MW, I_UW))
-    print(f"β={beta:.3f} | I(M;W)={I_MW:.3f} | I(U;W)={I_UW:.3f}")
-
-ib_points = np.array(ib_points)
-
-# trier par complexité
-ib_points = ib_points[np.argsort(ib_points[:, 0])]
-
-
-
-
-# ---------- Sauvegarde CSV ----------
-csv_file = "wcs_accuracy_complexity.csv"
-with open(csv_file, "w", newline="") as f:
-    writer = csv.writer(f)
-    writer.writerow(["Language", "Complexity_I(M;W)", "Accuracy_I(U;W)"])
-    for row in results:
-        writer.writerow(row)
-
-print(f"\n✔ Résultats sauvegardés dans {csv_file}")
-
-# ---------- Plot 2D ----------
-plt.figure(figsize=(7, 6))
-
-# Langues WCS
-results = np.array(results)
-plt.scatter(results[:,1], results[:,2],
-            s=40, alpha=0.6, label="WCS languages")
-results_nn = np.array(results_nn)
-# Langue NN
-plt.scatter(results_nn[:, 1], results_nn[:, 2],
-            s=40,
-            alpha=0.6,
-            color="orange",
-            label="Neural language")
-
-
-# Courbe IB
-plt.plot(ib_points[:,0], ib_points[:,1],
-         color="black", linewidth=2, label="IB curve")
-
-plt.xlabel("Complexity I(M;W) [bits]")
-plt.ylabel("Accuracy I(W;U) [bits]")
-plt.title("Information Bottleneck Trade-off\n(Color Naming)")
-plt.grid(True)
-plt.legend()
-plt.tight_layout()
-plt.show()
+        results_nn.append((i, I_MW, I_UW))
+        print(f"I(M;W) = {I_MW:.3f}")
+        print(f"I(U;W) = {I_UW:.3f}")
+    return results_nn

@@ -14,7 +14,7 @@ print("CUDA available:", torch.cuda.is_available())
 print("CUDA version:", torch.version.cuda)
 print("cuDNN:", torch.backends.cudnn.version())
 import egg.core as core
-from archs import ColorSenderMLP, ColorReceiverMLP
+from archs import ColorSenderRF, ColorSenderGS, ColorReceiverMLP
 from features import WCSFeat, ImagenetLoader
 import random
 from train import *
@@ -23,19 +23,29 @@ from train import *
 
 import torch
 import os
-def clone_analysis_sender(game, tau_s, device="cuda"):
+def clone_analysis_sender(game, mode, tau_s, device="cuda"):
     """
     On enlève ReinforceWrapper et on récupère la distribution complète
     """
     game_size=2
     vocab_size = 1024
     embedding_size = 1000
-    analysis_sender = ColorSenderMLP(
-        game_size=game_size,
-        embedding_size=embedding_size,  
-        vocab_size=vocab_size,
-        temp=tau_s,
-    ).to(device)
+    if(mode == "rf"):
+        analysis_sender = ColorSenderRF(
+            game_size=game_size,
+            embedding_size=embedding_size,  
+            vocab_size=vocab_size,
+            temp=tau_s,
+        ).to(device)
+    elif(mode == "gs"):
+                analysis_sender = ColorSenderGS(
+            game_size=game_size,
+            embedding_size=embedding_size,  
+            vocab_size=vocab_size,
+            temp=tau_s,
+        ).to(device)
+    else:
+        raise RuntimeError(f"Unknown training mode: {mode}")
 
     # Copier les poids du sender entraîné
     analysis_sender.load_state_dict(
@@ -47,6 +57,7 @@ def clone_analysis_sender(game, tau_s, device="cuda"):
 
 def extract_nn_language_full_probs(
     game,
+    mode,
     tau_s,
     dataset,
     output_path,
@@ -55,7 +66,7 @@ def extract_nn_language_full_probs(
     """
     Récupère la matrice complète 330x1024 P(w|c) et la sauvegarde dans un fichier .npz
     """
-    copy_sender = clone_analysis_sender(game, tau_s, device=device)
+    copy_sender = clone_analysis_sender(game, mode, tau_s, device=device)
 
     U = len(dataset)       # 330 chips
     V = 1024               # vocabulaire
@@ -82,6 +93,8 @@ def langueg(n_epochs, game_size, mode, gs_tau, tau_s, seed):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print("Using device:", device)
     opts = parse_arguments()
+    print("mode", opts.mode)
+
     torch.manual_seed(seed=seed)
     np.random.seed(seed)
     random.seed(seed)
@@ -95,16 +108,26 @@ def langueg(n_epochs, game_size, mode, gs_tau, tau_s, seed):
                                        batches_per_epoch=opts.batches_per_epoch, seed=seed)
 
     game = get_game(game_size, mode, gs_tau, tau_s, 0.09511187187723279, 0.029903872692200614)
-    game.sender.agent.to(device)
-    game.receiver.agent.to(device)
-
+    if mode == "rf":
+        game.sender.agent.to(device)
+        game.receiver.agent.to(device)
+    elif mode == "gs":
+        game.sender.to(device)
+        game.receiver.to(device)
+    else:
+            raise RuntimeError(f"Unknown training mode: {mode}")
+    
     optimizer = core.build_optimizer(game.parameters())
     for g in optimizer.param_groups:
         g['lr'] = 0.0009488916108443118
 
-    callbacks = [core.ConsoleLogger(as_json=True, print_train_loss=True)]
-    if mode == "gs":
-        callbacks.append(core.TemperatureUpdater(agent=game.sender, decay=0.9, minimum=0.1))
+    callbacks = None
+    if mode == 'gs':
+        callbacks = [core.TemperatureUpdater(agent=game.sender, decay=0.9, minimum=0.5)]
+    else:
+        callbacks = []
+    callbacks.append(core.ConsoleLogger(as_json=True, print_train_loss=True))
+
 
     trainer = core.Trainer(
         game=game,
@@ -119,6 +142,7 @@ def langueg(n_epochs, game_size, mode, gs_tau, tau_s, seed):
     # --- Sauvegarde matrice complète 330x1024 ---
     extract_nn_language_full_probs(
         game=game,
+        mode=mode,
         tau_s=tau_s,
         dataset=dataset,
         output_path=f"fig5/temp10/nn_language_seed_{seed}.npz",
@@ -129,4 +153,4 @@ def langueg(n_epochs, game_size, mode, gs_tau, tau_s, seed):
 
 
 for seed in range(0, 60):
-    langueg(200, 2, "rf", 1, 2.3167829883799427, seed)
+    langueg(200, 2, "gs", 10, 2.3167829883799427, seed)
